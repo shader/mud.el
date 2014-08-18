@@ -2,6 +2,8 @@
 
 ;; Copyright (C) 2014 Samuel Christie
 ;; Based on mudel.el (C) 2004, 2005  Jorgen Schaefer
+;; Some pieces borrwed from mu.el, by Alex Schroeder <alex@gnu.org>
+;; and Aidan Gauland <aidalgol@amuri.net>
 
 ;; Author: Samuel Christie, Jorgen Schaefer
 ;; Keywords: application, games
@@ -59,6 +61,36 @@ to completely disable command sending."
 (defvar mud-world nil
   "The name of the current world.")
 
+(defvar mud-world-list nil
+  "List of worlds for easy connection.
+  ((Name Host Port User Password)...)"
+  )
+
+(defun mud-world-name (world)
+  "The name of WORLD, which should be a string"
+  (nth 0 world))
+
+(defun mud-world-host (world)
+  "The host url of WORLD"
+  (nth 1 world))
+
+(defun mud-world-port (world)
+  "The host port of WORLD, if provided. Otherwise 23"
+  (or (nth 2 world) 23))
+
+(defun mud-world-server (world)
+  "The server as a cons of host and port, as used by comint"
+  (cons (mud-world-host world)
+        (mud-world-port world)))
+
+(defun mud-world-user (world)
+  "The user name for WORLD, if provided"
+  (nth 3 world))
+
+(defun mud-world-password (world)
+  "The password to use for WORLD, if provided"
+  (nth 4 world))
+
 (defvar mud-mode-map
   (let ((map (make-sparse-keymap)))
     (if (functionp 'set-keymap-parent)
@@ -70,16 +102,61 @@ to completely disable command sending."
     map)
   "The map for the Mud MUD client.")
 
-(defun mud (world host port)
+(defvar mud-world-history nil
+  "History for `mud-get-world'.")
+
+(defun mud-get-world nil
+  "Prompt the user for the world to connect to, offering the world list as completion options."
+  (let ((world-completions
+         (mapcar (lambda (w) (cons (mud-world-name w) w))
+                 mud-world-list)))
+    (if world-completions
+        (cdr (assoc (completing-read "World: "
+                                      world-completions
+                                      nil t nil
+                                      mud-world-history)
+                    world-completions))
+      (list (read-string "World name: ")
+            (read-string "Host: ")
+            (string-to-int (read-string "Port: " "23"))))))
+
+(defun mud (world)
   "Open a MUD connection to WORLD on HOST, port SERVICE.
 
 To see how to add commands, see `mud-command-sender'."
-  (interactive "sWorld name: \nsHost: \nsPort: ")
-  (let ((buf (make-comint world (cons host port))))
+  (interactive (list (mud-get-world)))
+  (let ((buf (make-comint (mud-world-name world)
+                          (mud-world-server world))))
     (with-current-buffer buf
       (switch-to-buffer (current-buffer))
-      (mud-mode world))
+      (mud-mode (mud-world-name world)))
     buf))
+
+(defvar mud-telnet-codes
+  '((IAC . 255)
+    (SE . 240)
+    (NOP . 241)
+    (WILL . 251)
+    (WONT . 252)
+    (DO . 253)
+    (DONT . 254)
+    ))
+
+(defvar mud-supported-options
+  "List of supported telnet options"
+  '((ATCP . 200)
+    (GMCP . 201)))
+
+(defun mud-code (sym)
+  "Find the numeric telnet code given by SYM"
+  (cdr (assoc sym mud-telnet-codes)))
+
+(defun mud-lookup-code (num)
+  "Find the symbol describing numeric code NUM"
+  (car (rassoc num mud-telnet-codes)))
+
+(defun mud-send-code (&rest codes)
+  (process-send-string (mud-process)))
 
 (defun mud-mode (world)
   "A mode for your MUD experience.
@@ -157,9 +234,8 @@ bound to a function, send STR unmodified to the server."
                                    (replace-regexp-in-string
                                     "^ *" ""
                                     args))
-                        (apply cmd (split-string args)))
-                    (comint-simple-send proc line)))
-              (comint-simple-send proc line)))
+                        (apply cmd (split-string args))))))
+            (comint-simple-send proc line))
           (split-string str "\n"))))
 
 (defun mud-output-filter (string)
