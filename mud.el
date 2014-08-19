@@ -60,10 +60,14 @@ You probably often will want to set this buffer-local from
 (defvar mud-process nil
   "The process for the current mud connection.")
 
-(defvar mud-world-list nil
+(defcustom mud-world-list
+  '(("Achaea" "achaea.com" 23)
+    ("Aardwolf" "aardmud.org" 23)
+    ("Aardwolf-Test" "aardmud.net" 6555))
   "List of worlds for easy connection.
   ((Name Host Port User Password)...)"
-  )
+  :type 'list
+  :group 'mud)
 
 (defun mud-world-name (world)
   "The name of WORLD, which should be a string"
