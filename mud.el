@@ -51,14 +51,6 @@ You probably often will want to set this buffer-local from
   :type 'hook
   :group 'mud)
 
-(defcustom mud-interpret-commands t
-  "Mud will interpret user-defined commands when this is non-nil.
-Usually, this is used to disable command parsing from within
-user-defined commands to prevent infinite loops, but can also be used
-to completely disable command sending."
-  :type 'boolean
-  :group 'mud)
-
 (defvar mud-world nil
   "The name of the current world.")
 
@@ -137,6 +129,7 @@ To see how to add commands, see `mud-command-sender'."
     (with-current-buffer buf
       (setq mud-buffer buf)
       (setq mud-process (get-buffer-process buf))
+      (mud-enable-options)
       (switch-to-buffer (current-buffer))
       (mud-mode (mud-world-name world)))
     buf))
@@ -153,19 +146,26 @@ To see how to add commands, see `mud-command-sender'."
     )
   "List of telnet command codes.")
 
-(defvar mud-supported-options
+(defvar mud-known-options
   '((ATCP . 200)
     (GMCP . 201)
     (MCCP . 86)
     (EOR . 25)
     (TTYPE . 24)
     )
-  "List of options supported by mud.el")
+  "List of options known to mud.el")
+
+(defvar mud-desired-options
+  '(GMCP)
+  "List of options automatically enabled during connection, if supported by the server")
+
+(defvar mud-enabled-options nil
+  "List of options currently enabled during connection")
 
 (defun mud-code (sym)
   "Find the numeric telnet code given by SYM"
   (cdr (or (assoc sym mud-telnet-codes)
-           (assoc sym mud-supported-options))))
+           (assoc sym mud-known-options))))
 
 (defun mud-codes (&rest syms)
   "Returns a sequence of telnet codes as a unibyte-string."
@@ -179,11 +179,11 @@ To see how to add commands, see `mud-command-sender'."
   "Send a sequence of telnet codes to the process.
 
 CODES should be a sequence of symbols defined in mud-telnet-codes or mud-supported-options"
-
-  (let ((str (mud-codes codes)))
+  (let ((str (apply #'mud-codes codes)))
     (mud-send-raw str)))
 
 (defun mud-enable (option)
+  "Enable a single telnet option. OPTION should be a symbol from mud-known-options."
   (mud-send-code 'IAC 'DO option))
 
 (defun mud-send-gmcp (key value)
@@ -191,6 +191,10 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
   (mud-send-raw (concat (mud-codes 'IAC 'SB 'GMCP)
                         key " " (json-encode value)
                         (mud-codes 'IAC 'SE))))
+
+(defun mud-enable-options nil
+  "Enable desired options."
+  (mapcar #'mud-enable mud-desired-options))
 
 (defun mud-mode (world)
   "A mode for your MUD experience.
