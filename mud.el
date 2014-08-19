@@ -28,6 +28,7 @@
 ;;; Code:
 
 (require 'comint)
+(require 'json)
 
 (defgroup mud nil
   "The Mud Client"
@@ -60,6 +61,12 @@ to completely disable command sending."
 
 (defvar mud-world nil
   "The name of the current world.")
+
+(defvar mud-buffer nil
+  "The buffer for the current mud session.")
+
+(defvar mud-process nil
+  "The process for the current mud connection.")
 
 (defvar mud-world-list nil
   "List of worlds for easy connection.
@@ -128,6 +135,8 @@ To see how to add commands, see `mud-command-sender'."
   (let ((buf (make-comint (mud-world-name world)
                           (mud-world-server world))))
     (with-current-buffer buf
+      (setq mud-buffer buf)
+      (setq mud-process (get-buffer-process buf))
       (switch-to-buffer (current-buffer))
       (mud-mode (mud-world-name world)))
     buf))
@@ -136,27 +145,52 @@ To see how to add commands, see `mud-command-sender'."
   '((IAC . 255)
     (SE . 240)
     (NOP . 241)
+    (SB . 250)
     (WILL . 251)
     (WONT . 252)
     (DO . 253)
     (DONT . 254)
-    ))
+    )
+  "List of telnet command codes.")
 
 (defvar mud-supported-options
-  "List of supported telnet options"
   '((ATCP . 200)
-    (GMCP . 201)))
+    (GMCP . 201)
+    (MCCP . 86)
+    (EOR . 25)
+    (TTYPE . 24)
+    )
+  "List of options supported by mud.el")
 
 (defun mud-code (sym)
   "Find the numeric telnet code given by SYM"
-  (cdr (assoc sym mud-telnet-codes)))
+  (cdr (or (assoc sym mud-telnet-codes)
+           (assoc sym mud-supported-options))))
+
+(defun mud-codes (&rest syms)
+  "Returns a sequence of telnet codes as a unibyte-string."
+  (apply #'unibyte-string (mapcar #'mud-code syms)))
 
 (defun mud-lookup-code (num)
   "Find the symbol describing numeric code NUM"
   (car (rassoc num mud-telnet-codes)))
 
 (defun mud-send-code (&rest codes)
-  (process-send-string (mud-process)))
+  "Send a sequence of telnet codes to the process.
+
+CODES should be a sequence of symbols defined in mud-telnet-codes or mud-supported-options"
+
+  (let ((str (mud-codes codes)))
+    (mud-send-raw str)))
+
+(defun mud-enable (option)
+  (mud-send-code 'IAC 'DO option))
+
+(defun mud-send-gmcp (key value)
+  "Send KEY and VALUE as a GMCP message to the server"
+  (mud-send-raw (concat (mud-codes 'IAC 'SB 'GMCP)
+                        key " " (json-encode value)
+                        (mud-codes 'IAC 'SE))))
 
 (defun mud-mode (world)
   "A mode for your MUD experience.
@@ -171,6 +205,8 @@ To see how to add commands, see `mud-command-sender'."
   (use-local-map mud-mode-map)
   (set (make-local-variable 'comint-input-sender)
        'mud-command-sender)
+  (let ((coding (coding-system-from-name 'no-conversion)))
+    (set-process-coding-system mud-process coding coding))
   (add-hook 'comint-output-filter-functions
             'mud-output-filter
             nil t)
@@ -183,6 +219,10 @@ To see how to add commands, see `mud-command-sender'."
   (funcall comint-input-sender
            (get-buffer-process (current-buffer))
            str))
+
+(defun mud-send-raw (str)
+  "Send STR to the current MUD server without sending a newline"
+  (process-send-string mud-process str))
 
 (defun mud-send-input (str)
   "Send STR as input to the comint process."
