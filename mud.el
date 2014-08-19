@@ -196,7 +196,8 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 
 (defun mud-enable (option)
   "Enable a single telnet option. OPTION should be a symbol from mud-known-options."
-  (mud-send-code 'IAC 'DO option))
+  (mud-send-code 'IAC 'DO option)
+  (add-to-list 'mud-enabled-options option))
 
 (defun mud-send-gmcp (key value)
   "Send KEY and VALUE as a GMCP message to the server"
