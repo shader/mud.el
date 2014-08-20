@@ -29,6 +29,7 @@
 
 (require 'comint)
 (require 'json)
+(require 'dash-functional)
 
 (defgroup mud nil
   "The Mud Client"
@@ -41,13 +42,27 @@
   :options '(mud-add-scroll-to-bottom)
   :group 'mud)
 
-(defcustom mud-output-filter-functions nil
+(defvar mud-preoutput-filter-functionss nil
+  "Functions run before line and block filtering, intended for removing protocol information from the stream."
+  )
+
+(defcustom mud-output-line-filters nil
   "Functions being run for each complete line of output from the
 server. Each function is passed the line from the server as an
 argument, and point is also in the displayed line from the server.
 
 You probably often will want to set this buffer-local from
 `mud-mode-hook', and only if you're in the right `mud-world'."
+  :type 'hook
+  :group 'mud)
+
+(defun mud-test-block-filter (string)
+  (message (concat "***" string "***"))
+  string)
+
+(defcustom mud-output-block-filters
+  '(mud-truncate-buffer)
+  "Functions being run on the entire block of input received from the server, with the block of text as the only argument."
   :type 'hook
   :group 'mud)
 
@@ -168,7 +183,8 @@ To see how to add commands, see `mud-command-sender'."
   "List of options known to mud.el")
 
 (defvar mud-desired-options
-  '(GMCP)
+  '(GMCP
+    EOR)
   "List of options automatically enabled during connection, if supported by the server")
 
 (defvar mud-enabled-options nil
@@ -209,6 +225,9 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
   "Enable desired options."
   (mapcar #'mud-enable mud-desired-options))
 
+;[160/160hp 150/150mn 500/500mv 0qt 1000tnl] > 
+;1540h, 1633m, 6600e, 7065w ex-
+
 (defun mud-mode (world)
   "A mode for your MUD experience.
 
@@ -224,9 +243,12 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
        'mud-command-sender)
   (let ((coding (coding-system-from-name 'no-conversion)))
     (set-process-coding-system mud-process coding coding))
+  (add-hook 'comint-preoutput-filter-functions
+            'mud-preoutput-filter
+            t t)
   (add-hook 'comint-output-filter-functions
             'mud-output-filter
-            nil t)
+            t t)
   ;; User stuff.
   (run-hooks 'mud-mode-hook))
 (put 'mu-connection-mode 'mode-class 'special)
@@ -295,6 +317,12 @@ bound to a function, send STR unmodified to the server."
             (comint-simple-send proc line))
           (split-string str "\n"))))
 
+(defun mud-preoutput-filter (string)
+  "Filter STRING before it gets added to the current buffer. Used for removing control characters and data from the visible output. This calls each function in `mud-preoutput-filter-functions' sequentially, using the final return value as the output."
+  (if mud-preoutput-filter-functions
+      (funcall (apply #'-compose mud-preoutput-filter-functions) string)
+    string))
+
 (defun mud-output-filter (string)
   "Filter STRING that was inserted into the current buffer. This runs
 `mud-output-filter-functions', and should be in
@@ -303,9 +331,10 @@ bound to a function, send STR unmodified to the server."
     (save-excursion
       (goto-char comint-last-output-start)
       (forward-line 0)
+      (run-hook-with-args 'mud-output-block-filters string)
       (while (< (point-at-eol)
                 (process-mark (get-buffer-process (current-buffer))))
-        (run-hook-with-args 'mud-output-filter-functions
+        (run-hook-with-args 'mud-output-line-filters
                             (buffer-substring-no-properties (point-at-bol) (point-at-eol)))
         (forward-line 1)))))
 
