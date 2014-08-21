@@ -57,6 +57,7 @@ You probably often will want to set this buffer-local from
   :group 'mud)
 
 (defun mud-test-block-filter (string)
+  "A filter for printing the block out to the Messages buffer, so you know what is included."
   (message (concat "***" string "***"))
   string)
 
@@ -149,6 +150,7 @@ To see how to add commands, see `mud-command-sender'."
       (setq mud-buffer buf)
       (setq mud-process (get-buffer-process buf))
       (mud-enable-options)
+      (set-buffer-multibyte nil) ;necessary to prevent conversion for high-byte characters
       (switch-to-buffer (current-buffer))
       (mud-mode (mud-world-name world)))
     buf))
@@ -182,9 +184,13 @@ To see how to add commands, see `mud-command-sender'."
     )
   "List of options known to mud.el")
 
+(defun mud-all-codes nil
+  "Return a list of all code values"
+  (append (mapcar #'cdr mud-telnet-codes)
+          (mapcar #'cdr mud-known-options)))
+
 (defvar mud-desired-options
-  '(GMCP
-    EOR)
+  '(GMCP)
   "List of options automatically enabled during connection, if supported by the server")
 
 (defvar mud-enabled-options nil
@@ -224,6 +230,60 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 (defun mud-enable-options nil
   "Enable desired options."
   (mapcar #'mud-enable mud-desired-options))
+
+(defun mud-next-code nil
+  "Seek forward to the next telnet code sequence"
+  (search-forward (mud-codes 'IAC)))
+
+(defun mud-backward-code nil
+  "Seek back to the beginning of the current telnet code sequence"
+  (search-backward (mud-codes 'IAC)))
+
+(defun mud-code-start-position nil
+  (save-excursion
+    (mud-backward-code)
+    (point)))
+
+(defun mud-code-end nil
+  "Go to the first character after a code sequence"
+  (skip-chars-forward (apply #'unibyte-string (mud-all-codes))))
+
+(defun mud-code-end-position nil
+  (min 
+   (save-excursion
+     (mud-code-end)
+     (point))
+   (save-excursion
+     (mud-next-code)
+     (backward-char)
+     (point))))
+
+(defun mud-delete-code nil
+  (delete-region (mud-code-start-position) (mud-code-end-position)))
+
+(defun mud-handle-negotiation (code)
+  (let ((option (char-after (+ (point) 1))))
+    (if (member option mud-desired-options)
+        (case code
+          ('DO (mud-send-code 'IAC 'WILL option))
+          ('WILL (mud-send-code 'IAC 'DO option))))))
+
+(defvar mud-code-handlers
+  '((DO . mud-handle-negotiation)
+    (WILL . mud-handle-negotiation)
+    (SB . t)))
+
+(defun mud-process-telnet (string)
+  "Process any telnet codes in STRING, and return the string without any telnet codes and related data."
+  (with-temp-buffer
+    (insert string)
+    (while (mud-next-code)
+      (let* ((code (mud-lookup-code (char-after)))
+             (handler (assoc code mud-code-handlers)))
+        (if handler
+            (handler code)
+          (mud-delete-code))))
+    (buffer-string)))
 
 ;[160/160hp 150/150mn 500/500mv 0qt 1000tnl] > 
 ;1540h, 1633m, 6600e, 7065w ex-
