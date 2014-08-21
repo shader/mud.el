@@ -42,9 +42,9 @@
   :options '(mud-add-scroll-to-bottom)
   :group 'mud)
 
-(defvar mud-preoutput-filter-functionss nil
-  "Functions run before line and block filtering, intended for removing protocol information from the stream."
-  )
+(defvar mud-preoutput-filter-functions
+  '(mud-process-telnet)
+  "Functions run before line and block filtering, intended for removing protocol information from the stream.")
 
 (defcustom mud-output-line-filters nil
   "Functions being run for each complete line of output from the
@@ -178,9 +178,13 @@ To see how to add commands, see `mud-command-sender'."
 (defvar mud-known-options
   '((ATCP . 200)
     (GMCP . 201)
-    (MCCP . 86)
+    (MCCP1 . 85)
+    (MCCP2 . 86)
     (EOR . 25)
     (TTYPE . 24)
+    (ECHO . 1)
+    (NAWS . 31)
+    (AARD . 102)
     )
   "List of options known to mud.el")
 
@@ -207,7 +211,8 @@ To see how to add commands, see `mud-command-sender'."
 
 (defun mud-lookup-code (num)
   "Find the symbol describing numeric code NUM"
-  (car (rassoc num mud-telnet-codes)))
+  (or (car (rassoc num mud-telnet-codes))
+      (car (rassoc num mud-known-options))))
 
 (defun mud-send-code (&rest codes)
   "Send a sequence of telnet codes to the process.
@@ -233,11 +238,11 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 
 (defun mud-next-code nil
   "Seek forward to the next telnet code sequence"
-  (search-forward (mud-codes 'IAC)))
+  (search-forward (mud-codes 'IAC) nil t))
 
 (defun mud-backward-code nil
   "Seek back to the beginning of the current telnet code sequence"
-  (search-backward (mud-codes 'IAC)))
+  (search-backward (mud-codes 'IAC) nil t))
 
 (defun mud-code-start-position nil
   (save-excursion
@@ -258,30 +263,68 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
      (backward-char)
      (point))))
 
+(defun mud-code-block-end-position nil
+  "Returns the position after the SE of a telnet code block."
+  (save-excursion
+    (search-forward (mud-codes 'SE))
+    (point)))
+
 (defun mud-delete-code nil
+  "Delete a single telnet code sequence."
   (delete-region (mud-code-start-position) (mud-code-end-position)))
 
+(defun mud-code-block-contents nil
+  "Get the contents between telnet SB and SE as a string"
+  (buffer-substring-no-properties
+   (+ (mud-code-start-position) 3)
+   (- (mud-code-block-end-position) 2)))
+
+(defun mud-delete-code-block nil
+  "Delete an entire telnet SB SE block"
+  (delete-region (mud-code-start-position)
+                 (mud-code-block-end-position)))
+
 (defun mud-handle-negotiation (code)
-  (let ((option (char-after (+ (point) 1))))
+  (let ((option (mud-lookup-code (char-after (+ (point) 1)))))
+    (message "recieved %s %s" code option)
     (if (member option mud-desired-options)
         (case code
           ('DO (mud-send-code 'IAC 'WILL option))
-          ('WILL (mud-send-code 'IAC 'DO option))))))
+          ('WILL (mud-send-code 'IAC 'DO option))))
+    (mud-delete-code)))
+
+(defun mud-handle-code-block (code)
+  "Handle a block of data between SB and SE markers. The code sequence is IAC SB <option>.
+If there is a handler defined for the option, run it on the contents between the option code and the next IAC. Otherwise, delete the entire block, including the codes."
+  (let* ((option (mud-lookup-code (char-after (+ (point) 1))))
+         (handler (cdr (assoc option mud-code-block-handlers)))
+         (block (mud-code-block-contents)))
+    (if handler (funcall handler block))
+    (mud-delete-code-block)))
 
 (defvar mud-code-handlers
   '((DO . mud-handle-negotiation)
     (WILL . mud-handle-negotiation)
-    (SB . t)))
+    (SB . mud-handle-code-block)))
+
+(defvar mud-code-block-handlers
+  '((GMCP . mud-handle-gmcp)))
+
+(defun mud-handle-gmcp (block)
+  "Handle a block of GMCP data"
+  (message "gmcp block: %s" block))
 
 (defun mud-process-telnet (string)
   "Process any telnet codes in STRING, and return the string without any telnet codes and related data."
   (with-temp-buffer
+    (set-buffer-multibyte nil)
     (insert string)
+    (goto-char (point-min))
     (while (mud-next-code)
       (let* ((code (mud-lookup-code (char-after)))
-             (handler (assoc code mud-code-handlers)))
+             (handler (cdr (assoc code mud-code-handlers))))
         (if handler
-            (handler code)
+            (funcall handler code)
           (mud-delete-code))))
     (buffer-string)))
 
