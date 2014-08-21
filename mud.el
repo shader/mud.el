@@ -251,16 +251,13 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 
 (defun mud-code-end nil
   "Go to the first character after a code sequence"
-  (skip-chars-forward (apply #'unibyte-string (mud-all-codes))))
+  (skip-chars-forward (apply #'unibyte-string (mud-all-codes))
+                      (+ (point) 2)))
 
 (defun mud-code-end-position nil
   (min 
    (save-excursion
      (mud-code-end)
-     (point))
-   (save-excursion
-     (mud-next-code)
-     (backward-char)
      (point))))
 
 (defun mud-code-block-end-position nil
@@ -284,20 +281,17 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
   (delete-region (mud-code-start-position)
                  (mud-code-block-end-position)))
 
-(defun mud-handle-negotiation (code)
-  (let ((option (mud-lookup-code (char-after (+ (point) 1)))))
-    (message "recieved %s %s" code option)
-    (if (member option mud-desired-options)
-        (case code
-          ('DO (mud-send-code 'IAC 'WILL option))
-          ('WILL (mud-send-code 'IAC 'DO option))))
-    (mud-delete-code)))
+(defun mud-handle-negotiation (code option)
+  (if (member option mud-desired-options)
+      (case code
+        ('DO (mud-send-code 'IAC 'WILL option))
+        ('WILL (mud-send-code 'IAC 'DO option))))
+  (mud-delete-code))
 
-(defun mud-handle-code-block (code)
+(defun mud-handle-code-block (code option)
   "Handle a block of data between SB and SE markers. The code sequence is IAC SB <option>.
 If there is a handler defined for the option, run it on the contents between the option code and the next IAC. Otherwise, delete the entire block, including the codes."
-  (let* ((option (mud-lookup-code (char-after (+ (point) 1))))
-         (handler (cdr (assoc option mud-code-block-handlers)))
+  (let* ((handler (cdr (assoc option mud-code-block-handlers)))
          (block (mud-code-block-contents)))
     (if handler (funcall handler block))
     (mud-delete-code-block)))
@@ -322,9 +316,11 @@ If there is a handler defined for the option, run it on the contents between the
     (goto-char (point-min))
     (while (mud-next-code)
       (let* ((code (mud-lookup-code (char-after)))
+             (option (mud-lookup-code (char-after (+ (point) 1))))
              (handler (cdr (assoc code mud-code-handlers))))
+        (message "recieved %s %s" code option)
         (if handler
-            (funcall handler code)
+            (funcall handler code option)
           (mud-delete-code))))
     (buffer-string)))
 
