@@ -62,7 +62,7 @@ You probably often will want to set this buffer-local from
   string)
 
 (defcustom mud-output-block-filters
-  '(mud-truncate-buffer)
+  '(mud-truncate-buffer mud-handle-echo)
   "Functions being run on the entire block of input received from the server, with the block of text as the only argument."
   :type 'hook
   :group 'mud)
@@ -193,9 +193,9 @@ To see how to add commands, see `mud-command-sender'."
   (append (mapcar #'cdr mud-telnet-codes)
           (mapcar #'cdr mud-known-options)))
 
-(defvar mud-desired-options
-  '(GMCP)
-  "List of options automatically enabled during connection, if supported by the server")
+(defvar mud-supported-options
+  '(GMCP ECHO)
+  "List of options automatically enabled during connection, as requested by the server.")
 
 (defvar mud-enabled-options nil
   "List of options currently enabled during connection")
@@ -252,13 +252,13 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 (defun mud-code-end nil
   "Go to the first character after a code sequence"
   (skip-chars-forward (apply #'unibyte-string (mud-all-codes))
-                      (+ (point) 2)))
+                      (+ (point) 2))) ;somewhat hackish, need a better way to prevent two code segments from being merged
 
 (defun mud-code-end-position nil
-  (min 
-   (save-excursion
-     (mud-code-end)
-     (point))))
+  "The position of the end of the current telnet code sequence."
+  (save-excursion
+    (mud-code-end)
+    (point)))
 
 (defun mud-code-block-end-position nil
   "Returns the position after the SE of a telnet code block."
@@ -281,12 +281,25 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
   (delete-region (mud-code-start-position)
                  (mud-code-block-end-position)))
 
+(defvar mud-option-status
+  (make-hash-table))
+
 (defun mud-handle-negotiation (code option)
-  (if (member option mud-desired-options)
-      (case code
-        ('DO (mud-send-code 'IAC 'WILL option))
-        ('WILL (mud-send-code 'IAC 'DO option))))
+  (cond ((member option mud-supported-options)
+         (case code
+           ('DO (mud-send-code 'IAC 'WILL option)
+                (puthash option t mud-option-status))
+           ('DONT (mud-send-code 'IAC 'WONT option)
+                (remhash option mud-option-status))
+           ('WILL (mud-send-code 'IAC 'DO option)
+                  (puthash option t mud-option-status))
+           ('WONT (mud-send-code 'IAC 'DONT option)
+                  (remhash option mud-option-status)))))
   (mud-delete-code))
+
+(defun mud-handle-echo (string)
+  (if (gethash 'ECHO mud-option-status)
+      (send-invisible)))
 
 (defun mud-handle-code-block (code option)
   "Handle a block of data between SB and SE markers. The code sequence is IAC SB <option>.
@@ -299,6 +312,8 @@ If there is a handler defined for the option, run it on the contents between the
 (defvar mud-code-handlers
   '((DO . mud-handle-negotiation)
     (WILL . mud-handle-negotiation)
+    (DONT . mud-handle-negotiation)
+    (WONT . mud-handle-negotiation)
     (SB . mud-handle-code-block)))
 
 (defvar mud-code-block-handlers
@@ -398,23 +413,7 @@ with PROC and all words in STR as the arguments. If mud-cmd-FOO has
 the property 'do-not-parse-args set, pass the arguments (including any
 leading space) verbatim as a single argument. If the symbol is not
 bound to a function, send STR unmodified to the server."
-  (if (zerop (length str))
-      (comint-simple-send proc str)
-    (mapc (lambda (line)
-            (if (and mud-interpret-commands
-                     (string-match "^ *\\(\\w+\\)" line))
-                (let* ((name (match-string 1 line))
-                       (args (substring line (match-end 0)))
-                       (cmd (intern (format "mud-cmd-%s" (upcase name)))))
-                  (if (fboundp cmd)
-                      (if (get cmd 'do-not-parse-args)
-                          (funcall cmd 
-                                   (replace-regexp-in-string
-                                    "^ *" ""
-                                    args))
-                        (apply cmd (split-string args))))))
-            (comint-simple-send proc line))
-          (split-string str "\n"))))
+  (comint-simple-send proc str))
 
 (defun mud-preoutput-filter (string)
   "Filter STRING before it gets added to the current buffer. Used for removing control characters and data from the visible output. This calls each function in `mud-preoutput-filter-functions' sequentially, using the final return value as the output."
