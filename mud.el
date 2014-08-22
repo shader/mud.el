@@ -304,7 +304,7 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 
 (defun mud-handle-echo (string)
   (if (gethash 'ECHO mud-option-status)
-      (send-invisible)))
+      (send-invisible "Password: ")))
 
 (defun mud-handle-code-block (code option)
   "Handle a block of data between SB and SE markers. The code sequence is IAC SB <option>.
