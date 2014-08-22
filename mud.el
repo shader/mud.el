@@ -378,9 +378,9 @@ If there is a handler defined for the option, run it on the contents between the
            (get-buffer-process (current-buffer))
            str))
 
-(defun mud-send-raw (str)
-  "Send STR to the current MUD server without sending a newline"
-  (process-send-string mud-process str))
+(defun mud-send-raw (&rest strings)
+  "Send STRINGS to the current MUD server without sending a newline"
+  (process-send-string mud-process (apply #'concat strings)))
 
 (defun mud-send-input (str)
   "Send STR as input to the comint process."
