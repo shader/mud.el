@@ -152,6 +152,7 @@ To see how to add commands, see `mud-command-sender'."
       (mud-enable-options)
       (set-buffer-multibyte nil) ;necessary to prevent conversion for high-byte characters
       (switch-to-buffer (current-buffer))
+      (add-hook 'pre-command-hook 'mud-move-to-prompt nil t)
       (mud-mode (mud-world-name world)))
     buf))
 
@@ -404,6 +405,14 @@ If there is a handler defined for the option, run it on the contents between the
                         (point)
                         (overlay-end comint-last-prompt-overlay))
         (set-marker pmark (point))))))
+
+(defun mud-move-to-prompt ()
+  "Move point to the prompt when typing. Copied from ERC"
+  (when (and (< (point) (process-mark mud-process))
+             (eq 'self-insert-command this-command))
+    (deactivate-mark)
+    (push-mark)
+    (goto-char (point-max))))
 
 (defun mud-command-sender (proc str)
   "This is the function used as `comint-input-sender'. It extracts
