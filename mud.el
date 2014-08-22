@@ -202,8 +202,10 @@ To see how to add commands, see `mud-command-sender'."
 
 (defun mud-code (sym)
   "Find the numeric telnet code given by SYM"
-  (cdr (or (assoc sym mud-telnet-codes)
-           (assoc sym mud-known-options))))
+  (if (integerp sym)
+      sym
+    (cdr (or (assoc sym mud-telnet-codes)
+             (assoc sym mud-known-options)))))
 
 (defun mud-codes (&rest syms)
   "Returns a sequence of telnet codes as a unibyte-string."
