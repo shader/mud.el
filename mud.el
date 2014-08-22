@@ -396,7 +396,7 @@ If there is a handler defined for the option, run it on the contents between the
     (goto-char (+ pmark idx))))
 
 (defun mud-insert (str)
-  "Insert STR as if it where output in the mud buffer."
+  "Insert STR as if it were output in the mud buffer."
   (save-excursion
     (let ((pmark (process-mark (get-buffer-process (current-buffer)))))
       (goto-char pmark)
