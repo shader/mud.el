@@ -254,7 +254,7 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 
 (defun mud-code-end nil
   "Go to the first character after a code sequence"
-  (skip-chars-forward (apply #'unibyte-string (mud-all-codes))
+  (skip-chars-forward (apply #'unibyte-string (delete 255 (mud-all-codes)))
                       (+ (point) 2))) ;somewhat hackish, need a better way to prevent two code segments from being merged
 
 (defun mud-code-end-position nil
