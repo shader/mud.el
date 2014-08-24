@@ -42,6 +42,10 @@
   :options '(mud-add-scroll-to-bottom)
   :group 'mud)
 
+(defvar mud-input-filter-functions
+  '(identity)
+  "Functions run before sending input, intended for handling aliases and triggers, among other things.")
+
 (defvar mud-preoutput-filter-functions
   '(mud-process-telnet)
   "Functions run before line and block filtering, intended for removing protocol information from the stream.")
@@ -359,7 +363,7 @@ If there is a handler defined for the option, run it on the contents between the
         mud-world world)
   (use-local-map mud-mode-map)
   (set (make-local-variable 'comint-input-sender)
-       'mud-command-sender)
+       'mud-input-sender)
   (let ((coding (coding-system-from-name 'no-conversion)))
     (set-process-coding-system mud-process coding coding))
   (add-hook 'comint-preoutput-filter-functions
@@ -416,17 +420,12 @@ If there is a handler defined for the option, run it on the contents between the
     (push-mark)
     (goto-char (point-max))))
 
-(defun mud-command-sender (proc str)
-  "This is the function used as `comint-input-sender'. It extracts
-commands and aliases from the string, and handles them off to the
-appropriate function.
+(defun mud-input-sender (proc str)
+  "This is the function used as `comint-input-sender'.
 
-Let FOO be the first word in STR. If mud-cmd-FOO exists, call it
-with PROC and all words in STR as the arguments. If mud-cmd-FOO has
-the property 'do-not-parse-args set, pass the arguments (including any
-leading space) verbatim as a single argument. If the symbol is not
-bound to a function, send STR unmodified to the server."
-  (comint-simple-send proc str))
+It applies each function in mud-input-filter-functions to the input in turn, sending the final result as input to the mud."
+  (let ((input (funcall (apply #'-compose mud-input-filter-functions) string)))
+    (comint-simple-send proc input)))
 
 (defun mud-preoutput-filter (string)
   "Filter STRING before it gets added to the current buffer. Used for removing control characters and data from the visible output. This calls each function in `mud-preoutput-filter-functions' sequentially, using the final return value as the output."
