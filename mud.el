@@ -118,6 +118,28 @@ You probably often will want to set this buffer-local from
   "The prompt regexp to use for WORLD, if provided"
   (nth 5 world))
 
+(defvar mud-navigation-bindings
+  `((,(kbd "<kp-1>") . "sw")
+    (,(kbd "<kp-2>") . "s")
+    (,(kbd "<kp-3>") . "se")
+    (,(kbd "<kp-4>") . "w")
+    (,(kbd "<kp-5>") . "look")
+    (,(kbd "<kp-6>") . "e")
+    (,(kbd "<kp-7>") . "nw")
+    (,(kbd "<kp-8>") . "n")
+    (,(kbd "<kp-9>") . "ne")
+    (,(kbd "<kp-divide>") . "in")
+    (,(kbd "<kp-multiply>") . "out")
+    (,(kbd "<kp-subtract>") . "up")
+    (,(kbd "<kp-add>") . "down")
+    ))
+
+(defun mud-numpad-navigation nil
+  (interactive)
+  (let* ((k (this-command-keys))
+         (dir (cdr (assoc k mud-navigation-bindings))))
+    (mud-send dir)))
+
 (defvar mud-mode-map
   (let ((map (make-sparse-keymap)))
     (if (functionp 'set-keymap-parent)
@@ -126,6 +148,9 @@ You probably often will want to set this buffer-local from
     (when (functionp 'set-keymap-name)
       (set-keymap-name map 'mud-mode-map))    ; XEmacs
     (define-key map (kbd "TAB") 'dabbrev-expand)
+    (mapcar (lambda (key)
+              (define-key map (car key) 'mud-numpad-navigation))
+            mud-navigation-bindings)
     map)
   "The map for the Mud MUD client.")
 
@@ -456,13 +481,15 @@ Don't forget to set `fill-column' when you use this."
   "Truncate the current buffer if it's size exceeds
 `mud-truncate-buffer-size' bytes.
 
-This should be added to `comint-output-filter-functions'."
+This should be added to `mud-output-block-filter-functions'."
   (when (> (buffer-size) mud-truncate-buffer-size)
     (buffer-disable-undo)
     (delete-region (point-min)
                    (- (buffer-size) (/ mud-truncate-buffer-size 2)))
     (buffer-enable-undo)))
 
+(defvar mud-aliases nil
+  "An alist of aliases. Each ")
 
 (provide 'mud)
 ;;; mud.el ends here
