@@ -114,6 +114,10 @@ You probably often will want to set this buffer-local from
   "The password to use for WORLD, if provided"
   (nth 4 world))
 
+(defun mud-world-prompt (world)
+  "The prompt regexp to use for WORLD, if provided"
+  (nth 5 world))
+
 (defvar mud-mode-map
   (let ((map (make-sparse-keymap)))
     (if (functionp 'set-keymap-parent)
@@ -153,11 +157,14 @@ To see how to add commands, see `mud-command-sender'."
     (with-current-buffer buf
       (setq mud-buffer buf)
       (setq mud-process (get-buffer-process buf))
-      (mud-enable-options)
+      (setq mud-input-mark (process-mark mud-process))
+      (setq message-truncate-lines t) ;don't resize minibuffer for large log messages
       (set-buffer-multibyte nil) ;necessary to prevent conversion for high-byte characters
-      (switch-to-buffer (current-buffer))
+
+      (mud-enable-options)
       (add-hook 'pre-command-hook 'mud-move-to-prompt nil t)
-      (mud-mode (mud-world-name world)))
+      (mud-mode (mud-world-name world))
+      (switch-to-buffer (current-buffer)))
     buf))
 
 (defvar mud-telnet-codes
@@ -387,15 +394,14 @@ If there is a handler defined for the option, run it on the contents between the
 (defun mud-insert (str)
   "Insert STR as if it were output in the mud buffer."
   (save-excursion
-    (let ((pmark (process-mark (get-buffer-process (current-buffer)))))
-      (goto-char pmark)
-      (forward-line 0)
-      (insert str)
-      (if comint-last-prompt-overlay
-          (move-overlay comint-last-prompt-overlay
-                        (point)
-                        (overlay-end comint-last-prompt-overlay))
-        (set-marker pmark (point))))))
+    (goto-char mud-input-mark)
+    (beginning-of-line)
+    (insert str)
+    (if comint-last-prompt-overlay
+        (move-overlay comint-last-prompt-overlay
+                      (point)
+                      (overlay-end comint-last-prompt-overlay))
+      (set-marker mud-input-mark (point)))))
 
 (defun mud-move-to-prompt ()
   "Move point to the prompt when typing. Copied from ERC"
@@ -425,7 +431,7 @@ It applies each function in mud-input-filter-functions to the input in turn, sen
   (when (string-match "\n" string)
     (save-excursion
       (goto-char comint-last-output-start)
-      (forward-line 0)
+      (beginning-of-line)
       (run-hook-with-args 'mud-output-block-filters string)
       (while (< (point-at-eol)
                 (process-mark (get-buffer-process (current-buffer))))
@@ -454,7 +460,7 @@ This should be added to `comint-output-filter-functions'."
   (when (> (buffer-size) mud-truncate-buffer-size)
     (buffer-disable-undo)
     (delete-region (point-min)
-                   (- (buffer-size) mud-truncate-buffer-size))
+                   (- (buffer-size) (/ mud-truncate-buffer-size 2)))
     (buffer-enable-undo)))
 
 
