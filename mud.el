@@ -384,19 +384,6 @@ If there is a handler defined for the option, run it on the contents between the
   "Send STRINGS to the current MUD server without sending a newline"
   (process-send-string mud-process (apply #'concat strings)))
 
-(defun mud-send-input (str)
-  "Send STR as input to the comint process."
-  (let* ((pmark (process-mark (get-buffer-process (current-buffer))))
-         (old-input (buffer-substring pmark (point-max)))
-         (idx (- (point) pmark)))
-    (delete-region pmark (point-max))
-    (goto-char pmark)
-    (insert str)
-    (comint-send-input)
-    (goto-char pmark)
-    (insert old-input)
-    (goto-char (+ pmark idx))))
-
 (defun mud-insert (str)
   "Insert STR as if it were output in the mud buffer."
   (save-excursion
@@ -470,36 +457,6 @@ This should be added to `comint-output-filter-functions'."
                    (- (buffer-size) mud-truncate-buffer-size))
     (buffer-enable-undo)))
 
-(defun mud-add-scroll-to-bottom ()
-  "Add this to `mud-mode-hook' to recenter output at the bottom of
-the window.
-
-This works whenever scrolling happens, so it's added to
-`window-scroll-functions'."
-  (add-hook 'window-scroll-functions 'mud-scroll-to-bottom nil t))
-
-(defun mud-scroll-to-bottom (window display-start)
-  "Recenter WINDOW so that point is on the last line.
-
-This is added to `window-scroll-functions' by
-`mud-add-scroll-to-bottom'.
-
-The code is shamelessly taken (but adapted) from ERC."
-  (when (and window
-             (window-live-p window)
-             (comint-check-proc (current-buffer))
-             (>= (point)
-                 (process-mark (get-buffer-process (current-buffer)))))
-    (let ((resize-mini-windows nil))
-      (save-selected-window
-        (select-window window)
-        (save-restriction
-          (widen)
-          (when (>= (point)
-                    (process-mark (get-buffer-process (current-buffer))))
-            (save-excursion
-              (recenter -1)
-              (sit-for 0))))))))
 
 (provide 'mud)
 ;;; mud.el ends here
