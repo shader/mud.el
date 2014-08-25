@@ -118,7 +118,14 @@ You probably often will want to set this buffer-local from
   "The prompt regexp to use for WORLD, if provided"
   (nth 5 world))
 
-(defvar mud-navigation-bindings
+(defun mud-action (action)
+  "If action is a string, send it to the mud. Otherwise presume it is a function and send the results of calling it."
+  (if (stringp action)
+      (mud-send action)
+    (let ((result (funcall action)))
+      (if result (mud-send result)))))
+
+(defvar mud-action-bindings
   `((,(kbd "<kp-1>") . "sw")
     (,(kbd "<kp-2>") . "s")
     (,(kbd "<kp-3>") . "se")
@@ -134,11 +141,18 @@ You probably often will want to set this buffer-local from
     (,(kbd "<kp-add>") . "down")
     ))
 
-(defun mud-numpad-navigation nil
+(defun mud-key-action nil
+  "This function is used for binding keys to mud commands"
   (interactive)
   (let* ((k (this-command-keys))
-         (dir (cdr (assoc k mud-navigation-bindings))))
-    (mud-send dir)))
+         (action (cdr (assoc k mud-action-bindings))))
+    (mud-action action)))
+
+(defun mud-bind-actions (map)
+  "Create bindings for all pairs in `mud-action-bindings'"
+  (mapcar (lambda (key)
+            (define-key map (car key) 'mud-key-action))
+          mud-action-bindings))
 
 (defvar mud-mode-map
   (let ((map (make-sparse-keymap)))
@@ -148,11 +162,9 @@ You probably often will want to set this buffer-local from
     (when (functionp 'set-keymap-name)
       (set-keymap-name map 'mud-mode-map))    ; XEmacs
     (define-key map (kbd "TAB") 'dabbrev-expand)
-    (mapcar (lambda (key)
-              (define-key map (car key) 'mud-numpad-navigation))
-            mud-navigation-bindings)
+    (mud-bind-actions map)
     map)
-  "The map for the Mud MUD client.")
+  "The keymap for the MUD client.")
 
 (defvar mud-world-history nil
   "History for `mud-get-world'.")
