@@ -43,7 +43,7 @@
   :group 'mud)
 
 (defvar mud-input-filter-functions
-  '(identity)
+  '(mud-process-aliases)
   "Functions run before sending input, intended for handling aliases and triggers, among other things.")
 
 (defvar mud-preoutput-filter-functions
@@ -439,8 +439,8 @@ If there is a handler defined for the option, run it on the contents between the
 (defun mud-input-sender (proc str)
   "This is the function used as `comint-input-sender'.
 
-It applies each function in mud-input-filter-functions to the input in turn, sending the final result as input to the mud."
-  (let ((input (funcall (apply #'-compose mud-input-filter-functions) string)))
+It applies each function in mud-input-filter-functions to the input in turn, returning the final result to be sent to the mud."
+  (let ((input (funcall (apply #'-compose mud-input-filter-functions) str)))
     (comint-simple-send proc input)))
 
 (defun mud-preoutput-filter (string)
@@ -489,7 +489,18 @@ This should be added to `mud-output-block-filter-functions'."
     (buffer-enable-undo)))
 
 (defvar mud-aliases nil
-  "An alist of aliases. Each ")
+  "An alist of aliases. Each key should be the word to match, and each value should be the substitution")
+
+(defun mud-process-aliases (input)
+  "This function searches for each alias in the input, and applies the substitution."
+  (let ((input 
+         (mapcar (lambda (word)
+                   (let ((match (assoc word mud-aliases)))
+                     (if match
+                         (cdr match)
+                       word)))
+                 (split-string input))))
+    (mapconcat 'identity input " ")))
 
 (provide 'mud)
 ;;; mud.el ends here
