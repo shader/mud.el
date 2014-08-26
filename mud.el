@@ -118,11 +118,11 @@ You probably often will want to set this buffer-local from
   "The prompt regexp to use for WORLD, if provided"
   (nth 5 world))
 
-(defun mud-action (action)
+(defun mud-action (action &rest args)
   "If action is a string, send it to the mud. Otherwise presume it is a function and send the results of calling it."
   (if (stringp action)
       (mud-send action)
-    (let ((result (funcall action)))
+    (let ((result (apply action args)))
       (if result (mud-send result)))))
 
 (defvar mud-action-bindings
@@ -513,6 +513,16 @@ This should be added to `mud-output-block-filter-functions'."
                        word)))
                  (split-string input))))
     (mapconcat 'identity input " ")))
+
+(defvar mud-reflexes nil
+  "An alist of reflexes. The key should be the regexp to match against a line of output, and the value should be an action to perform in response. If the action is a function, it must accept the matching line as an argument. Any matched groups should be available through match-string etc.")
+
+(defun mud-handle-reflexes (line)
+  "This function tests each line of output against all user-defined reflexes, running the actions of any that matched with LINE as their only argument."
+  (mapcar (lambda (reflex)
+            (if (string-match (car reflex) line)
+                (mud-action (cdr reflex) line)))
+          mud-reflexes))
 
 (provide 'mud)
 ;;; mud.el ends here
