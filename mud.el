@@ -517,6 +517,11 @@ This should be added to `mud-output-block-filter-functions'."
 (defvar mud-reflexes nil
   "An alist of reflexes. The key should be the regexp to match against a line of output, and the value should be an action to perform in response. If the action is a function, it must accept the matching line as an argument. Any matched groups should be available through match-string etc.")
 
+(defun mud-reflex (&rest reflexes)
+  "Helper function for adding reflexes. Adds any number of reflexes, by taking alternating pairs of regexp and action. E.g. (mud-reflex rx action rx action...)"
+  (mapc (lambda (reflex) (add-to-list 'mud-reflexes (apply 'cons reflex)))
+        (-partition 2 reflexes)))
+
 (defun mud-handle-reflexes (line)
   "This function tests each line of output against all user-defined reflexes, running the actions of any that matched with LINE as their only argument."
   (mapc (lambda (reflex)
