@@ -198,7 +198,6 @@ To see how to add commands, see `mud-command-sender'."
       (setq message-truncate-lines t) ;don't resize minibuffer for large log messages
       (set-buffer-multibyte nil) ;necessary to prevent conversion for high-byte characters
 
-      (mud-enable-options)
       (add-hook 'pre-command-hook 'mud-move-to-prompt nil t)
       (mud-mode (mud-world-name world))
       (switch-to-buffer (current-buffer)))
@@ -282,10 +281,6 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
   (mud-send-raw (concat (mud-codes 'IAC 'SB 'GMCP)
                         key " " (json-encode value)
                         (mud-codes 'IAC 'SE))))
-
-(defun mud-enable-options nil
-  "Enable desired options."
-  (mapc #'mud-enable mud-desired-options))
 
 (defun mud-next-code nil
   "Seek forward to the next telnet code sequence"
