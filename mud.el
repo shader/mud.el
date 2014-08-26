@@ -150,9 +150,9 @@ You probably often will want to set this buffer-local from
 
 (defun mud-bind-actions (map)
   "Create bindings for all pairs in `mud-action-bindings'"
-  (mapcar (lambda (key)
-            (define-key map (car key) 'mud-key-action))
-          mud-action-bindings))
+  (mapc (lambda (key)
+          (define-key map (car key) 'mud-key-action))
+        mud-action-bindings))
 
 (defvar mud-mode-map
   (let ((map (make-sparse-keymap)))
@@ -285,7 +285,7 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 
 (defun mud-enable-options nil
   "Enable desired options."
-  (mapcar #'mud-enable mud-desired-options))
+  (mapc #'mud-enable mud-desired-options))
 
 (defun mud-next-code nil
   "Seek forward to the next telnet code sequence"
@@ -519,10 +519,10 @@ This should be added to `mud-output-block-filter-functions'."
 
 (defun mud-handle-reflexes (line)
   "This function tests each line of output against all user-defined reflexes, running the actions of any that matched with LINE as their only argument."
-  (mapcar (lambda (reflex)
-            (if (string-match (car reflex) line)
-                (mud-action (cdr reflex) line)))
-          mud-reflexes))
+  (mapc (lambda (reflex)
+          (if (string-match (car reflex) line)
+              (mud-action (cdr reflex) line)))
+        mud-reflexes))
 
 (provide 'mud)
 ;;; mud.el ends here
