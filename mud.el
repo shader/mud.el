@@ -50,7 +50,8 @@
   '(mud-process-telnet)
   "Functions run before line and block filtering, intended for removing protocol information from the stream.")
 
-(defcustom mud-output-line-filters nil
+(defcustom mud-output-line-filters
+  '(mud-handle-reflexes)
   "Functions being run for each complete line of output from the
 server. Each function is passed the line from the server as an
 argument, and point is also in the displayed line from the server.
@@ -114,10 +115,6 @@ You probably often will want to set this buffer-local from
   "The password to use for WORLD, if provided"
   (nth 4 world))
 
-(defun mud-world-prompt (world)
-  "The prompt regexp to use for WORLD, if provided"
-  (nth 5 world))
-
 (defun mud-action (action &rest args)
   "If action is a string, send it to the mud. Otherwise presume it is a function and send the results of calling it."
   (if (stringp action)
@@ -161,7 +158,8 @@ You probably often will want to set this buffer-local from
       (set-keymap-parents map (list comint-mode-map))) ; XEmacs
     (when (functionp 'set-keymap-name)
       (set-keymap-name map 'mud-mode-map))    ; XEmacs
-    (define-key map (kbd "TAB") 'dabbrev-expand)
+    (define-key map (kbd "TAB") 'hippie-expand)
+    (define-key map (kbd "RET") 'mud-send-input)
     (mud-bind-actions map)
     map)
   "The keymap for the MUD client.")
@@ -399,9 +397,6 @@ If there is a handler defined for the option, run it on the contents between the
           (mud-delete-code))))
     (buffer-string)))
 
-;[160/160hp 150/150mn 500/500mv 0qt 1000tnl] > 
-;1540h, 1633m, 6600e, 7065w ex-
-
 (defun mud-mode (world)
   "A mode for your MUD experience.
 
@@ -441,15 +436,11 @@ If there is a handler defined for the option, run it on the contents between the
     (goto-char mud-input-mark)
     (beginning-of-line)
     (insert str)
-    (if comint-last-prompt-overlay
-        (move-overlay comint-last-prompt-overlay
-                      (point)
-                      (overlay-end comint-last-prompt-overlay))
-      (set-marker mud-input-mark (point)))))
+    (set-marker mud-input-mark (point))))
 
 (defun mud-move-to-prompt ()
   "Move point to the prompt when typing. Copied from ERC"
-  (when (and (< (point) (process-mark mud-process))
+  (when (and (< (point) mud-input-mark)
              (eq 'self-insert-command this-command))
     (deactivate-mark)
     (push-mark)
@@ -459,11 +450,25 @@ If there is a handler defined for the option, run it on the contents between the
   "This is the function used as `comint-input-sender'.
 
 It applies each function in mud-input-filter-functions to the input in turn, returning the final result to be sent to the mud."
-  (let ((input (funcall (apply #'-compose mud-input-filter-functions) str)))
-    (comint-simple-send proc input)))
+  (let ((input (funcall (apply #'-compose mud-input-filter-functions) str))
+        (comint-input-sender-no-newline nil))
+    (comint-simple-send proc input)
+    (save-excursion
+      (let ((inhibit-read-only t))
+        (forward-line 0)
+        (put-text-property (point) mud-input-mark 'read-only nil)
+        (delete-region (line-beginning-position) mud-input-mark)))))
+
+(defun mud-send-input nil
+  "This is the function for binding to RET to call `comint-send-input'"
+  (interactive)
+  (buffer-disable-undo)
+  (comint-send-input t)
+  (buffer-enable-undo))
 
 (defun mud-preoutput-filter (string)
   "Filter STRING before it gets added to the current buffer. Used for removing control characters and data from the visible output. This calls each function in `mud-preoutput-filter-functions' sequentially, using the final return value as the output."
+  (buffer-disable-undo)
   (if mud-preoutput-filter-functions
       (funcall (apply #'-compose mud-preoutput-filter-functions) string)
     string))
@@ -472,16 +477,19 @@ It applies each function in mud-input-filter-functions to the input in turn, ret
   "Filter STRING that was inserted into the current buffer. This runs
 `mud-output-filter-functions', and should be in
 `comint-output-filter-functions'."
-  (when (string-match "\n" string)
+  (when (string-match "\n" string) ;required because comint somtimes calls with no output
+    (run-hook-with-args 'mud-output-block-filters string)
     (save-excursion
+      (put-text-property comint-last-output-start mud-input-mark 'read-only t)
       (goto-char comint-last-output-start)
       (beginning-of-line)
-      (run-hook-with-args 'mud-output-block-filters string)
       (while (< (point-at-eol)
                 (process-mark (get-buffer-process (current-buffer))))
         (run-hook-with-args 'mud-output-line-filters
                             (buffer-substring-no-properties (point-at-bol) (point-at-eol)))
-        (forward-line 1)))))
+        (forward-line 1)))
+    (goto-char mud-input-mark)
+    (buffer-enable-undo)))
 
 (defun mud-output-fill (string)
   "Fill the region between `comint-last-output-start' and the
@@ -535,6 +543,35 @@ This should be added to `mud-output-block-filter-functions'."
           (if (string-match (car reflex) line)
               (mud-action (cdr reflex) line)))
         mud-reflexes))
+
+(defvar mud-prompt-regexps
+  (list (rx "[" (* (any alpha num space "/")) "] > ")
+        (rx bol (* (+ word) (? ",") space) (? "e") (? "x") "-" eol)))
+
+(defvar mud-extracted-prompt nil
+  "The text extracted by the `mud-remove-prompt' function, if you want to reuse it.")
+
+(defun mud-remove-prompt (string)
+  (with-temp-buffer
+    (insert string)
+    (dolist (regexp mud-prompt-regexps)
+      (goto-char (point-min))
+      (if (re-search-forward regexp nil t)
+          (setq mud-extracted-prompt
+                (delete-and-extract-region (match-beginning 0) (match-end 0)))))
+    (buffer-string)))
+
+(defun mud-prompt nil
+  "This function returns the string to be used as the prompt for display."
+  ;mud-extracted-prompt
+  "> "
+  )
+
+(defun mud-display-prompt (string)
+  ;(message "prompt is: %s" (mud-prompt))
+  ;(delete-region (line-beginning-position -1) (line-end-position))
+  (mud-insert (mud-prompt))
+  )
 
 (provide 'mud)
 ;;; mud.el ends here
