@@ -184,6 +184,14 @@ You probably often will want to set this buffer-local from
             (read-string "Host: ")
             (string-to-int (read-string "Port: " "23"))))))
 
+(defvar mud-send-password-flag t
+  "Whether to send the password automatically on a non-echo prompt. Defaults to true, but then is turned off after sending once.")
+
+(defun mud-login (world)
+  (let ((user (mud-world-user world)))
+    (if user
+        (mud-send user))))
+
 (defun mud (world)
   "Open a MUD connection to WORLD on HOST, port SERVICE.
 
@@ -200,7 +208,8 @@ To see how to add commands, see `mud-command-sender'."
 
       (add-hook 'pre-command-hook 'mud-move-to-prompt nil t)
       (mud-mode (mud-world-name world))
-      (switch-to-buffer (current-buffer)))
+      (switch-to-buffer (current-buffer))
+      (mud-login world))
     buf))
 
 (defvar mud-telnet-codes
@@ -347,7 +356,10 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 
 (defun mud-handle-echo (string)
   (if (gethash 'ECHO mud-option-status)
-      (send-invisible "Password: ")))
+      (let ((pass (mud-world-password (assoc mud-world mud-world-list))))
+        (if (and mud-send-password pass)
+            (progn (mud-send pass) (set (make-local-variable 'mud-send-password) nil))
+          (send-invisible "Password: ")))))
 
 (defun mud-handle-code-block (code option)
   "Handle a block of data between SB and SE markers. The code sequence is IAC SB <option>.
