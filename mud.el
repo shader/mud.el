@@ -61,11 +61,6 @@ You probably often will want to set this buffer-local from
   :type 'hook
   :group 'mud)
 
-(defun mud-test-block-filter (string)
-  "A filter for printing the block out to the Messages buffer, so you know what is included."
-  (message (concat "***" string "***"))
-  string)
-
 (defcustom mud-output-block-filters
   '(mud-truncate-buffer mud-handle-echo)
   "Functions being run on the entire block of input received from the server, with the block of text as the only argument."
@@ -478,7 +473,7 @@ It applies each function in mud-input-filter-functions to the input in turn, ret
 `mud-output-filter-functions', and should be in
 `comint-output-filter-functions'."
   (when (string-match "\n" string) ;required because comint somtimes calls with no output
-    (run-hook-with-args 'mud-output-block-filters string)
+    (save-excursion (run-hook-with-args 'mud-output-block-filters string))
     (save-excursion
       (put-text-property comint-last-output-start mud-input-mark 'read-only t)
       (goto-char comint-last-output-start)
