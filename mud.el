@@ -350,7 +350,7 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
 (defun mud-handle-echo (string)
   (if (gethash 'ECHO mud-option-status)
       (let ((pass (mud-world-password (assoc mud-world mud-world-list))))
-        (if (and mud-send-password pass)
+        (if (and mud-send-password-flag pass)
             (progn (mud-send pass) (set (make-local-variable 'mud-send-password) nil))
           (send-invisible "Password: ")))))
 
