@@ -468,7 +468,8 @@ It applies each function in mud-input-filter-functions to the input in turn, ret
     (buffer-disable-undo)
     (if (= mud-process-mark mud-input-mark)
         (set-marker mud-process-mark mud-prompt-mark))
-    (setq-local mud-input-mark-offset (- (point-max) mud-input-mark))
+    (setq-local mud-input-mark-offset 0;(- (point-max) mud-input-mark)
+                )
     (mud-remove-prompt
      (if mud-preoutput-filter-functions
          (funcall (apply #'-compose mud-preoutput-filter-functions) string)
