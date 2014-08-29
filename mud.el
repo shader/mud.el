@@ -405,6 +405,7 @@ If there is a handler defined for the option, run it on the contents between the
         mode-name (format "Mud/%s" world)
         mud-world world)
   (use-local-map mud-mode-map)
+  (face-remap-set-base 'comint-highlight-prompt nil)
   (set (make-local-variable 'comint-input-sender)
        'mud-input-sender)
   (let ((coding (coding-system-from-name 'no-conversion)))
