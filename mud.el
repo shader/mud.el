@@ -67,13 +67,13 @@ You probably often will want to set this buffer-local from
   :type 'hook
   :group 'mud)
 
-(defvar mud-world nil
+(defvar-local mud-world nil
   "The name of the current world.")
 
-(defvar mud-buffer nil
+(defvar-local mud-buffer nil
   "The buffer for the current mud session.")
 
-(defvar mud-process nil
+(defvar-local mud-process nil
   "The process for the current mud connection.")
 
 (defcustom mud-world-list
@@ -159,7 +159,7 @@ You probably often will want to set this buffer-local from
     map)
   "The keymap for the MUD client.")
 
-(defvar mud-world-history nil
+(defvar-local mud-world-history nil
   "History for `mud-get-world'.")
 
 (defun mud-get-world nil
@@ -177,7 +177,7 @@ You probably often will want to set this buffer-local from
             (read-string "Host: ")
             (string-to-int (read-string "Port: " "23"))))))
 
-(defvar mud-send-password-flag t
+(defvar-local mud-send-password-flag t
   "Whether to send the password automatically on a non-echo prompt. Defaults to true, but then is turned off after sending once.")
 
 (defun mud-login (world)
@@ -193,10 +193,14 @@ To see how to add commands, see `mud-command-sender'."
   (let ((buf (make-comint (mud-world-name world)
                           (mud-world-server world))))
     (with-current-buffer buf
-      (setq mud-buffer buf)
-      (setq mud-process (get-buffer-process buf))
-      (setq mud-input-mark (process-mark mud-process))
-      (setq message-truncate-lines t) ;don't resize minibuffer for large log messages
+      (setq mud-buffer buf
+            mud-process (get-buffer-process buf)
+            mud-process-mark (process-mark mud-process)
+            mud-input-mark (copy-marker mud-process-mark)
+            mud-prompt-mark (copy-marker mud-input-mark)
+            message-truncate-lines t ;don't resize minibuffer for large log messages
+            )
+
       (set-buffer-multibyte nil) ;necessary to prevent conversion for high-byte characters
 
       (add-hook 'pre-command-hook 'mud-move-to-prompt nil t)
@@ -247,9 +251,6 @@ To see how to add commands, see `mud-command-sender'."
   '(GMCP ECHO)
   "List of options automatically enabled during connection, as requested by the server.")
 
-(defvar mud-enabled-options nil
-  "List of options currently enabled during connection")
-
 (defun mud-code (sym)
   "Find the numeric telnet code given by SYM"
   (if (integerp sym)
@@ -272,11 +273,6 @@ To see how to add commands, see `mud-command-sender'."
 CODES should be a sequence of symbols defined in mud-telnet-codes or mud-supported-options"
   (let ((str (apply #'mud-codes codes)))
     (mud-send-raw str)))
-
-(defun mud-enable (option)
-  "Enable a single telnet option. OPTION should be a symbol from mud-known-options."
-  (mud-send-code 'IAC 'DO option)
-  (add-to-list 'mud-enabled-options option))
 
 (defun mud-send-gmcp (key value)
   "Send KEY and VALUE as a GMCP message to the server"
@@ -329,7 +325,7 @@ CODES should be a sequence of symbols defined in mud-telnet-codes or mud-support
   (delete-region (mud-code-start-position)
                  (mud-code-block-end-position)))
 
-(defvar mud-option-status
+(defvar-local mud-option-status
   (make-hash-table))
 
 (defun mud-handle-negotiation (code option)
@@ -374,23 +370,28 @@ If there is a handler defined for the option, run it on the contents between the
 
 (defun mud-handle-gmcp (block)
   "Handle a block of GMCP data"
-  (message "gmcp block: %s" block))
+  ;(message "gmcp block: %s" block)
+  )
 
 (defun mud-process-telnet (string)
   "Process any telnet codes in STRING, and return the string without any telnet codes and related data."
-  (with-temp-buffer
-    (set-buffer-multibyte nil)
-    (insert string)
-    (goto-char (point-min))
-    (while (mud-next-code)
-      (let* ((code (mud-lookup-code (char-after)))
-             (option (mud-lookup-code (char-after (+ (point) 1))))
-             (handler (cdr (assoc code mud-code-handlers))))
-        (message "recieved %s %s" code option)
-        (if handler
-            (funcall handler code option)
-          (mud-delete-code))))
-    (buffer-string)))
+  (let ((proc mud-process)
+        (status mud-option-status))
+    (with-temp-buffer
+      (let ((mud-process proc)
+            (mud-option-status status)) ;mucky double-let for buffer-local variable preservation
+        (set-buffer-multibyte nil)
+        (insert string)
+        (goto-char (point-min))
+        (while (mud-next-code)
+          (let* ((code (mud-lookup-code (char-after)))
+                 (option (mud-lookup-code (char-after (+ (point) 1))))
+                 (handler (cdr (assoc code mud-code-handlers))))
+            (message "recieved %s %s" code option)
+            (if handler
+                (funcall handler code option)
+              (mud-delete-code)))))
+      (buffer-string))))
 
 (defun mud-mode (world)
   "A mode for your MUD experience.
@@ -428,13 +429,14 @@ If there is a handler defined for the option, run it on the contents between the
 (defun mud-insert (str)
   "Insert STR as if it were output in the mud buffer."
   (save-excursion
-    (goto-char mud-input-mark)
-    (beginning-of-line)
+    (goto-char mud-process-mark)
     (insert str)
-    (set-marker mud-input-mark (point))))
+    (set-marker mud-process-mark (point))
+    (set-marker mud-prompt-mark (point))
+    (set-marker mud-input-mark (+ mud-input-mark (length str)))))
 
 (defun mud-move-to-prompt ()
-  "Move point to the prompt when typing. Copied from ERC"
+  "Move point to the prompt when typing."
   (when (and (< (point) mud-input-mark)
              (eq 'self-insert-command this-command))
     (deactivate-mark)
@@ -452,21 +454,24 @@ It applies each function in mud-input-filter-functions to the input in turn, ret
       (let ((inhibit-read-only t))
         (forward-line 0)
         (put-text-property (point) mud-input-mark 'read-only nil)
-        (delete-region (line-beginning-position) mud-input-mark)))))
+        (delete-region (line-beginning-position) (point-max))))))
 
 (defun mud-send-input nil
   "This is the function for binding to RET to call `comint-send-input'"
   (interactive)
   (buffer-disable-undo)
+  (set-marker mud-process-mark mud-input-mark)
   (comint-send-input t)
   (buffer-enable-undo))
 
 (defun mud-preoutput-filter (string)
   "Filter STRING before it gets added to the current buffer. Used for removing control characters and data from the visible output. This calls each function in `mud-preoutput-filter-functions' sequentially, using the final return value as the output."
-  (buffer-disable-undo)
-  (if mud-preoutput-filter-functions
-      (funcall (apply #'-compose mud-preoutput-filter-functions) string)
-    string))
+  (when (> (length string) 0)
+    (buffer-disable-undo)
+    (set-marker mud-process-mark mud-prompt-mark)
+    (if mud-preoutput-filter-functions
+        (funcall (apply #'-compose mud-preoutput-filter-functions) string)
+      string)))
 
 (defun mud-output-filter (string)
   "Filter STRING that was inserted into the current buffer. This runs
@@ -475,14 +480,19 @@ It applies each function in mud-input-filter-functions to the input in turn, ret
   (when (string-match "\n" string) ;required because comint somtimes calls with no output
     (save-excursion (run-hook-with-args 'mud-output-block-filters string))
     (save-excursion
-      (put-text-property comint-last-output-start mud-input-mark 'read-only t)
+      (message "start: %s, input: %s" comint-last-output-start mud-input-mark)
+      (put-text-property comint-last-output-start (point-max) 'read-only t)
       (goto-char comint-last-output-start)
       (beginning-of-line)
       (while (< (point-at-eol)
                 (process-mark (get-buffer-process (current-buffer))))
         (run-hook-with-args 'mud-output-line-filters
                             (buffer-substring-no-properties (point-at-bol) (point-at-eol)))
-        (forward-line 1)))
+        (forward-line 1))
+      (goto-char (point-max))
+      (set-marker mud-input-mark (point))
+      (forward-line 0)
+      (set-marker mud-prompt-mark (point)))
     (goto-char mud-input-mark)
     (buffer-enable-undo)))
 
@@ -538,35 +548,6 @@ This should be added to `mud-output-block-filter-functions'."
           (if (string-match (car reflex) line)
               (mud-action (cdr reflex) line)))
         mud-reflexes))
-
-(defvar mud-prompt-regexps
-  (list (rx "[" (* (any alpha num space "/")) "] > ")
-        (rx bol (* (+ word) (? ",") space) (? "e") (? "x") "-" eol)))
-
-(defvar mud-extracted-prompt nil
-  "The text extracted by the `mud-remove-prompt' function, if you want to reuse it.")
-
-(defun mud-remove-prompt (string)
-  (with-temp-buffer
-    (insert string)
-    (dolist (regexp mud-prompt-regexps)
-      (goto-char (point-min))
-      (if (re-search-forward regexp nil t)
-          (setq mud-extracted-prompt
-                (delete-and-extract-region (match-beginning 0) (match-end 0)))))
-    (buffer-string)))
-
-(defun mud-prompt nil
-  "This function returns the string to be used as the prompt for display."
-  ;mud-extracted-prompt
-  "> "
-  )
-
-(defun mud-display-prompt (string)
-  ;(message "prompt is: %s" (mud-prompt))
-  ;(delete-region (line-beginning-position -1) (line-end-position))
-  (mud-insert (mud-prompt))
-  )
 
 (provide 'mud)
 ;;; mud.el ends here
