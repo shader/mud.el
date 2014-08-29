@@ -77,9 +77,7 @@ You probably often will want to set this buffer-local from
   "The process for the current mud connection.")
 
 (defcustom mud-world-list
-  '(("Achaea" "achaea.com" 23)
-    ("Aardwolf" "aardmud.org" 23)
-    ("Aardwolf-Test" "aardmud.net" 6555))
+  '(("Aardwolf-Test" "aardmud.net" 6555))
   "List of worlds for easy connection.
   ((Name Host Port User Password)...)"
   :type 'list
