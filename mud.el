@@ -30,6 +30,9 @@
 (require 'comint)
 (require 'json)
 (require 'dash-functional)
+(require 's)
+
+(setq lexical-binding t)
 
 (defgroup mud nil
   "The Mud Client"
@@ -181,7 +184,7 @@ You probably often will want to set this buffer-local from
 (defun mud-login (world)
   (let ((user (mud-world-user world)))
     (if user
-        (mud-send user))))
+        (run-at-time 0.1 nil (lambda nil (message "user: %s" user) (mud-send user))))))
 
 (defun mud (world)
   "Open a MUD connection to WORLD on HOST, port SERVICE.
