@@ -451,12 +451,7 @@ If there is a handler defined for the option, run it on the contents between the
 It applies each function in mud-input-filter-functions to the input in turn, returning the final result to be sent to the mud."
   (let ((input (funcall (apply #'-compose mud-input-filter-functions) str))
         (comint-input-sender-no-newline nil))
-    (comint-simple-send proc input)
-    (save-excursion
-      (let ((inhibit-read-only t))
-        (forward-line 0)
-        (put-text-property (point) mud-input-mark 'read-only nil)
-        (delete-region (line-beginning-position) (point-max))))))
+    (comint-simple-send proc input)))
 
 (defun mud-send-input nil
   "This is the function for binding to RET to call `comint-send-input'"
@@ -464,25 +459,29 @@ It applies each function in mud-input-filter-functions to the input in turn, ret
   (buffer-disable-undo)
   (set-marker mud-process-mark mud-input-mark)
   (comint-send-input t)
+  (set-marker mud-process-mark mud-prompt-mark)
   (buffer-enable-undo))
 
 (defun mud-preoutput-filter (string)
   "Filter STRING before it gets added to the current buffer. Used for removing control characters and data from the visible output. This calls each function in `mud-preoutput-filter-functions' sequentially, using the final return value as the output."
   (when (> (length string) 0)
     (buffer-disable-undo)
-    (set-marker mud-process-mark mud-prompt-mark)
-    (if mud-preoutput-filter-functions
-        (funcall (apply #'-compose mud-preoutput-filter-functions) string)
-      string)))
+    (if (= mud-process-mark mud-input-mark)
+        (set-marker mud-process-mark mud-prompt-mark))
+    (setq-local mud-input-mark-offset (- (point-max) mud-input-mark))
+    (mud-remove-prompt
+     (if mud-preoutput-filter-functions
+         (funcall (apply #'-compose mud-preoutput-filter-functions) string)
+       string))))
 
 (defun mud-output-filter (string)
   "Filter STRING that was inserted into the current buffer. This runs
 `mud-output-filter-functions', and should be in
 `comint-output-filter-functions'."
-  (when (string-match "\n" string) ;required because comint somtimes calls with no output
+  (when (> (length string) 0) ;required because comint somtimes calls with no output
     (save-excursion (run-hook-with-args 'mud-output-block-filters string))
     (save-excursion
-      (message "start: %s, input: %s" comint-last-output-start mud-input-mark)
+      ;(message "start: %s, input: %s" comint-last-output-start mud-input-mark)
       (put-text-property comint-last-output-start (point-max) 'read-only t)
       (goto-char comint-last-output-start)
       (beginning-of-line)
@@ -491,19 +490,14 @@ It applies each function in mud-input-filter-functions to the input in turn, ret
         (run-hook-with-args 'mud-output-line-filters
                             (buffer-substring-no-properties (point-at-bol) (point-at-eol)))
         (forward-line 1))
+      (set-marker mud-input-mark (- (point-max) mud-input-mark-offset))
+
       (goto-char (point-max))
-      (set-marker mud-input-mark (point))
       (forward-line 0)
       (set-marker mud-prompt-mark (point)))
+    (mud-update-prompt)
     (goto-char mud-input-mark)
     (buffer-enable-undo)))
-
-(defun mud-output-fill (string)
-  "Fill the region between `comint-last-output-start' and the
-process-mark.
-
-Don't forget to set `fill-column' when you use this."
-  (fill-region (point-at-bol) (point-at-eol) nil t))
 
 (defcustom mud-truncate-buffer-size 100000
   "The maximum size of the buffer. If it ever exceeds that,
@@ -550,6 +544,50 @@ This should be added to `mud-output-block-filter-functions'."
           (if (string-match (car reflex) line)
               (mud-action (cdr reflex) line)))
         mud-reflexes))
+
+(defvar mud-prompt-regexps
+  (list (rx "[" (* nonl) "] > " eol)
+        (rx bol (* nonl) "," (* nonl) (? "e") (? "x") "-" eol)
+   ))
+
+(defvar-local mud-extracted-prompt nil
+  "The text extracted by the `mud-remove-prompt' function, if you want to reuse it.")
+
+(defvar-local mud-extracted-prompt-flag nil)
+
+(defun mud-remove-prompt (string)
+  (setq mud-extracted-prompt-flag nil)
+  (let* ((extraction nil)
+         (content
+          (with-temp-buffer
+            (insert string)
+            (dolist (regexp mud-prompt-regexps)
+              (goto-char (point-min))
+              (if (re-search-forward regexp nil t)
+                  (setq extraction
+                        (delete-and-extract-region (match-beginning 0) (match-end 0)))))
+            (buffer-string))))
+    (if extraction (setq mud-extracted-prompt (ansi-color-apply extraction)
+                         mud-extracted-prompt-flag t
+                         content (concat (s-trim-right content) "\n\n")))
+    content))
+
+(defun mud-prompt nil
+  "This function returns the string to be used as the prompt for display."
+  (or mud-extracted-prompt "")
+  )
+
+(defun mud-update-prompt nil
+  (if mud-extracted-prompt-flag
+   (save-excursion
+     (let ((inhibit-read-only t))
+       (put-text-property (point-min) (point-max) 'read-only nil)
+       (message "%s" (delete-and-extract-region mud-prompt-mark mud-input-mark))
+       (goto-char mud-prompt-mark)
+       (insert (mud-prompt))
+       (set-marker mud-input-mark (point-max))
+       (set-marker mud-process-mark mud-input-mark)
+       (put-text-property (point-min) mud-input-mark 'read-only t)))))
 
 (provide 'mud)
 ;;; mud.el ends here
