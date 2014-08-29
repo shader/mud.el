@@ -422,7 +422,7 @@ If there is a handler defined for the option, run it on the contents between the
 
 (defun mud-send (str)
   "Send STR to the current MUD server."
-  (funcall comint-input-sender mud-process str))
+  (mud-input-sender mud-process str))
 
 (defun mud-send-raw (&rest strings)
   "Send STRINGS to the current MUD server without sending a newline"
